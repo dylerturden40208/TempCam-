@@ -1,12 +1,16 @@
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
+  Clipboard,
   Dimensions,
   Image,
   Modal,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -26,6 +30,7 @@ interface TempPhoto {
 
 export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   
   // App State
@@ -33,6 +38,10 @@ export default function HomeScreen() {
   const [photos, setPhotos] = useState<TempPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<TempPhoto | null>(null);
   
+  // Batch Mode State
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchSelectedIds, setBatchSelectedIds] = useState<string[]>([]);
+
   // Navigation Modals
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -49,7 +58,7 @@ export default function HomeScreen() {
       setPhotos((prevPhotos) => {
         const activePhotos = prevPhotos.filter((p) => p.expiresAt > now);
         
-        // If actively viewing a photo that just expired, close the preview modal
+        // If actively viewing a photo that just expired, close preview
         if (selectedPhoto && selectedPhoto.expiresAt <= now) {
           setIsPreviewOpen(false);
           setSelectedPhoto(null);
@@ -81,7 +90,6 @@ export default function HomeScreen() {
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
   };
 
-  // Triggers quick white screen flash animation
   const triggerFlash = () => {
     flashOpacity.setValue(0.8);
     Animated.timing(flashOpacity, {
@@ -94,9 +102,7 @@ export default function HomeScreen() {
   const takePicture = async () => {
     if (cameraRef.current) {
       try {
-        // Instant visual feedback
         triggerFlash();
-
         const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
         
         const expirationMs = Date.now() + selectedTimer * 1000;
@@ -119,6 +125,144 @@ export default function HomeScreen() {
       setIsPreviewOpen(false);
       setSelectedPhoto(null);
     }
+  };
+
+  // Save photo to device camera roll
+  const saveToCameraRoll = async (photoUri: string, showNotification = true) => {
+    try {
+      let currentMediaPermission = mediaPermission;
+      
+      if (!currentMediaPermission?.granted) {
+        currentMediaPermission = await requestMediaPermission();
+      }
+
+      if (currentMediaPermission?.granted) {
+        await MediaLibrary.saveToLibraryAsync(photoUri);
+        if (showNotification) {
+          Alert.alert('Saved! 📸', 'Photo saved to your device camera roll.');
+        }
+      } else {
+        Alert.alert('Permission Denied', 'Storage permission is required to save photos.');
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      if (showNotification) Alert.alert('Error', 'Failed to save photo.');
+    }
+  };
+
+  // Extend expiration timer by 1 hour
+  const extendPhotoTimer = (id: string, additionalSeconds = 3600) => {
+    setPhotos((prev) =>
+      prev.map((p) => {
+        if (p.id === id) {
+          return { ...p, expiresAt: p.expiresAt + additionalSeconds * 1000 };
+        }
+        return p;
+      })
+    );
+    Alert.alert('Timer Extended ⏳', 'Added 1 hour to photo duration.');
+  };
+
+  // Trigger Native Share Sheet
+  const sharePhoto = async (photoUri: string) => {
+    try {
+      await Share.share({
+        url: photoUri,
+        title: 'TempCam Photo',
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
+  // Copy URI to clipboard
+  const copyPhotoToClipboard = (photoUri: string) => {
+    Clipboard.setString(photoUri);
+    Alert.alert('Copied! 📋', 'Photo link copied to clipboard.');
+  };
+
+  // Toggle Selection in Batch Mode
+  const toggleBatchSelect = (id: string) => {
+    if (batchSelectedIds.includes(id)) {
+      setBatchSelectedIds((prev) => prev.filter((item) => item !== id));
+    } else {
+      setBatchSelectedIds((prev) => [...prev, id]);
+    }
+  };
+
+  // Execute Batch Delete
+  const handleBatchDelete = () => {
+    Alert.alert(
+      'Delete Selected Photos',
+      `Are you sure you want to delete ${batchSelectedIds.length} photos?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: () => {
+            setPhotos((prev) => prev.filter((p) => !batchSelectedIds.includes(p.id)));
+            setBatchSelectedIds([]);
+            setIsBatchMode(false);
+          },
+        },
+      ]
+    );
+  };
+
+  // Execute Batch Save
+  const handleBatchSave = async () => {
+    const selectedPhotos = photos.filter((p) => batchSelectedIds.includes(p.id));
+    for (const item of selectedPhotos) {
+      await saveToCameraRoll(item.uri, false);
+    }
+    Alert.alert('Batch Saved! 📸', `${batchSelectedIds.length} photos saved to camera roll.`);
+    setBatchSelectedIds([]);
+    setIsBatchMode(false);
+  };
+
+  // Long press menu handler
+  const handleLongPress = (item: TempPhoto) => {
+    if (isBatchMode) return;
+
+    Alert.alert(
+      'Photo Actions',
+      'Choose an action for this temporary snap:',
+      [
+        {
+          text: 'Extend Timer (+1 Hour)',
+          onPress: () => extendPhotoTimer(item.id, 3600),
+        },
+        {
+          text: 'Share Photo',
+          onPress: () => sharePhoto(item.uri),
+        },
+        {
+          text: 'Copy Image Link',
+          onPress: () => copyPhotoToClipboard(item.uri),
+        },
+        {
+          text: 'Select Multiple (Batch Mode)',
+          onPress: () => {
+            setIsBatchMode(true);
+            setBatchSelectedIds([item.id]);
+          },
+        },
+        {
+          text: 'Save to Camera Roll',
+          onPress: () => saveToCameraRoll(item.uri),
+        },
+        {
+          text: 'Delete Now',
+          style: 'destructive',
+          onPress: () => deletePhotoEarly(item.id),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
   };
 
   const formatTimerLabel = (seconds: TimerOption) => {
@@ -157,7 +301,6 @@ export default function HomeScreen() {
 
       {/* Controls Overlay */}
       <SafeAreaView style={styles.overlay}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.titleText}>TempCam</Text>
           <Text style={styles.subtitleText}>Auto-Deleting Camera</Text>
@@ -224,48 +367,75 @@ export default function HomeScreen() {
       <Modal visible={isGalleryOpen} animationType="slide" transparent={false}>
         <SafeAreaView style={styles.galleryModalContainer}>
           <View style={styles.galleryHeader}>
-            <Text style={styles.galleryTitle}>Active Temp Photos</Text>
-            <TouchableOpacity 
-              style={styles.galleryCloseButton} 
-              onPress={() => setIsGalleryOpen(false)}
-            >
-              <Text style={styles.closeButtonText}>Done</Text>
-            </TouchableOpacity>
+            <Text style={styles.galleryTitle}>
+              {isBatchMode ? `Selected (${batchSelectedIds.length})` : 'Active Temp Photos'}
+            </Text>
+            
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {isBatchMode && (
+                <TouchableOpacity 
+                  style={styles.batchCancelButton}
+                  onPress={() => {
+                    setIsBatchMode(false);
+                    setBatchSelectedIds([]);
+                  }}
+                >
+                  <Text style={styles.batchCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity 
+                style={styles.galleryCloseButton} 
+                onPress={() => {
+                  setIsGalleryOpen(false);
+                  setIsBatchMode(false);
+                  setBatchSelectedIds([]);
+                }}
+              >
+                <Text style={styles.closeButtonText}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {photos.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No active temporary photos.</Text>
-              <Text style={styles.emptySubtext}>Snaps taken with TempCam will appear here until they self-destruct.</Text>
+              <Text style={styles.emptySubtext}>
+                Snaps taken with TempCam will appear here until they self-destruct.
+              </Text>
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.gridContainer}>
               {photos.map((item) => {
-                const isSelected = selectedPhoto?.id === item.id;
+                const isBatchSelected = batchSelectedIds.includes(item.id);
 
                 return (
                   <TouchableOpacity
                     key={item.id}
                     style={[
                       styles.gridItem,
-                      isSelected && styles.selectedGridItem,
+                      isBatchSelected && styles.selectedGridItem,
                     ]}
                     onPress={() => {
-                      setSelectedPhoto(item);
-                      setIsPreviewOpen(true);
+                      if (isBatchMode) {
+                        toggleBatchSelect(item.id);
+                      } else {
+                        setSelectedPhoto(item);
+                        setIsPreviewOpen(true);
+                      }
                     }}
+                    onLongPress={() => handleLongPress(item)}
+                    delayLongPress={350}
                     activeOpacity={0.7}
                   >
                     <Image source={{ uri: item.uri }} style={styles.gridImage} />
                     
-                    {/* Active Selection Checkmark */}
-                    {isSelected && (
+                    {isBatchSelected && (
                       <View style={styles.selectedBadge}>
                         <Text style={styles.selectedBadgeText}>✓</Text>
                       </View>
                     )}
 
-                    {/* Remaining Time Badge */}
                     <View style={styles.gridTimerBadge}>
                       <Text style={styles.gridTimerText}>
                         🔥 {formatRemainingTime(item.expiresAt)}
@@ -275,6 +445,25 @@ export default function HomeScreen() {
                 );
               })}
             </ScrollView>
+          )}
+
+          {/* Batch Action Toolbar */}
+          {isBatchMode && batchSelectedIds.length > 0 && (
+            <View style={styles.batchToolbar}>
+              <TouchableOpacity 
+                style={[styles.batchActionButton, { backgroundColor: '#28A745' }]} 
+                onPress={handleBatchSave}
+              >
+                <Text style={styles.batchActionText}>Save Selected</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.batchActionButton, { backgroundColor: '#D9534F' }]} 
+                onPress={handleBatchDelete}
+              >
+                <Text style={styles.batchActionText}>Delete Selected</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </SafeAreaView>
       </Modal>
@@ -293,10 +482,24 @@ export default function HomeScreen() {
 
             <View style={styles.previewActionsRow}>
               <TouchableOpacity 
+                style={styles.saveButton} 
+                onPress={() => saveToCameraRoll(selectedPhoto.uri)}
+              >
+                <Text style={styles.saveButtonText}>Save 📥</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.sharePreviewButton} 
+                onPress={() => sharePhoto(selectedPhoto.uri)}
+              >
+                <Text style={styles.sharePreviewText}>Share 📤</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
                 style={styles.deleteEarlyButton} 
                 onPress={() => deletePhotoEarly(selectedPhoto.id)}
               >
-                <Text style={styles.deleteEarlyText}>Delete Now</Text>
+                <Text style={styles.deleteEarlyText}>Delete</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -495,7 +698,7 @@ const styles = StyleSheet.create({
   },
   galleryTitle: {
     color: '#FFF',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   galleryCloseButton: {
@@ -504,11 +707,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 15,
   },
+  batchCancelButton: {
+    backgroundColor: '#444',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 15,
+  },
+  batchCancelText: {
+    color: '#AAA',
+    fontWeight: 'bold',
+  },
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
     padding: 12,
+    paddingBottom: 90,
   },
   gridItem: {
     width: GRID_ITEM_SIZE,
@@ -557,6 +771,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
+  batchToolbar: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    backgroundColor: '#1E1E1E',
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  batchActionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  batchActionText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -596,19 +834,38 @@ const styles = StyleSheet.create({
   expirationBadgeText: {
     color: '#FFF',
     fontWeight: 'bold',
-    fontSize: 16,
   },
   previewActionsRow: {
     position: 'absolute',
     bottom: 40,
     flexDirection: 'row',
-    gap: 20,
+    gap: 8,
+  },
+  saveButton: {
+    backgroundColor: '#28A745',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  saveButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  sharePreviewButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  sharePreviewText: {
+    color: '#FFF',
+    fontWeight: 'bold',
   },
   deleteEarlyButton: {
     backgroundColor: '#D9534F',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 20,
   },
   deleteEarlyText: {
     color: '#FFF',
@@ -616,9 +873,9 @@ const styles = StyleSheet.create({
   },
   backButton: {
     backgroundColor: '#333',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 20,
   },
   closeButtonText: {
     color: '#FFF',
