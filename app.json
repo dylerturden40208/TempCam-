@@ -1,16 +1,22 @@
 {
   "expo": {
-    "name": "EphemeralCamera",
-    "slug": "EphemeralCamera",
+    "name": "TempCam",
+    "slug": "TempCam",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "ephemeralcamera",
+    "scheme": "tempcam",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.dylerturden502.EphemeralCamera",
+      "buildNumber": "2",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -18,7 +24,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "foregroundImage": "./assets/images/icon.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -51,7 +57,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0f1a1d8e-a9ce-458a-b91d-4c4f8b63738b"
+        "projectId": "7e9ee0cb-5688-40e4-8484-b05145ce56b6"
       }
     }
   }
