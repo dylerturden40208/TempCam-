@@ -1,40 +1,30 @@
 {
   "expo": {
-    "name": "TempCam!",
+    "name": "TempCam",
     "slug": "TempCam",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tempcam",
-    "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash-icon.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#000000"
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.TempCam",
-      "buildNumber": "11",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "NSCameraUsageDescription": "TempCam needs access to your camera to take temporary photos.",
+        "NSPhotoLibraryUsageDescription": "TempCam needs access to your photo library to save permanent photos.",
+        "NSPhotoLibraryAddUsageDescription": "TempCam needs access to add photos to your gallery."
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
-      },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -47,25 +37,19 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow TempCam! to access your camera to take temporary photos."
+          "cameraPermission": "Allow TempCam to access your camera."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow TempCam! to save temporary photos.",
-          "savePhotosPermission": "Allow TempCam! to save temporary photos."
+          "photosPermission": "Allow TempCam to access your photos.",
+          "savePhotosPermission": "Allow TempCam to save photos."
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "7e9ee0cb-5688-40e4-8484-b05145ce56b6"
-      }
     }
   }
 }

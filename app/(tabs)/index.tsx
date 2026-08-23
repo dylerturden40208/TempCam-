@@ -38,7 +38,6 @@ export default function CameraScreen() {
   const cameraRef = useRef<any>(null);
   const [previousDistance, setPreviousDistance] = useState<number | null>(null);
 
-  // Auto-hide Splash Screen after 2.5 seconds
   useEffect(() => {
     const prepare = async () => {
       await new Promise(resolve => setTimeout(resolve, 2500));
@@ -47,18 +46,15 @@ export default function CameraScreen() {
     prepare();
   }, []);
 
-  // Ticker: Refreshes countdown display and removes expired photos cleanly
   useEffect(() => {
     const interval = setInterval(() => {
       const currentTime = Date.now();
-      
-      setTick((t) => t + 1); // Trigger UI re-render for smooth countdown text
+      setTick((t) => t + 1);
 
       setPhotos((currentPhotos) => {
         const unexpired = currentPhotos.filter((p) => p.expiresAt > currentTime);
         const expired = currentPhotos.filter((p) => p.expiresAt <= currentTime);
 
-        // Delete expired photo files asynchronously from disk
         expired.forEach((photo) => {
           FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch((err) =>
             console.error('Error deleting file:', err)
@@ -72,7 +68,6 @@ export default function CameraScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Duration parser
   const getDurationMs = (duration: string): number => {
     switch (duration) {
       case '10s': return 10 * 1000;
@@ -83,7 +78,6 @@ export default function CameraScreen() {
     }
   };
 
-  // Human-readable timer formatter
   const formatRemainingTime = (expiresAt: number): string => {
     const diffMs = expiresAt - Date.now();
     if (diffMs <= 0) return '0s';
@@ -101,7 +95,6 @@ export default function CameraScreen() {
     return `${totalDays}d`;
   };
 
-  // Universal Capture Photo Handler
   const handleTakePicture = async () => {
     if (!cameraRef.current) return;
 
@@ -134,7 +127,6 @@ export default function CameraScreen() {
     }
   };
 
-  // Long-Press Action Menu
   const handleLongPressPhoto = (photo: SavedPhoto) => {
     Alert.alert(
       'Photo Options',
@@ -175,7 +167,6 @@ export default function CameraScreen() {
     );
   };
 
-  // Touch Gesture for Pinch-to-Zoom
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
@@ -217,57 +208,51 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
-      <CameraView style={StyleSheet.absoluteFill} facing={facing} zoom={zoom} ref={cameraRef}>
-        
-        {/* Time Selection Bar */}
-        <View style={styles.timeBarContainer}>
-          <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
-          <View style={styles.timeBarOptions}>
-            {['10s', '1 Hr', '24 Hrs', '7 Days'].map((item) => (
-              <TouchableOpacity
-                key={item}
-                style={[
-                  styles.timeButton,
-                  selectedDuration === item && styles.activeTimeButton
-                ]}
-                onPress={() => setSelectedDuration(item)}
-              >
-                <Text style={styles.timeButtonText}>
-                  {item === '10s' ? `⚡ ${item}` : item}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+      <CameraView style={StyleSheet.absoluteFill} facing={facing} zoom={zoom} ref={cameraRef} />
+
+      <View style={styles.timeBarContainer}>
+        <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
+        <View style={styles.timeBarOptions}>
+          {['10s', '1 Hr', '24 Hrs', '7 Days'].map((item) => (
+            <TouchableOpacity
+              key={item}
+              style={[
+                styles.timeButton,
+                selectedDuration === item && styles.activeTimeButton
+              ]}
+              onPress={() => setSelectedDuration(item)}
+            >
+              <Text style={styles.timeButtonText}>
+                {item === '10s' ? `⚡ ${item}` : item}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
+      </View>
 
-        {/* Bottom Controls */}
-        <View style={styles.controlsContainer}>
-          <TouchableOpacity 
-            style={styles.flipButton} 
-            onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}
-          >
-            <Text style={styles.controlText}>Flip</Text>
-          </TouchableOpacity>
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity 
+          style={styles.flipButton} 
+          onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}
+        >
+          <Text style={styles.controlText}>Flip</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.captureButton} onPress={handleTakePicture}>
-            <View style={styles.innerCaptureButton} />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.captureButton} onPress={handleTakePicture}>
+          <View style={styles.innerCaptureButton} />
+        </TouchableOpacity>
 
-          {/* Gallery Button */}
-          <TouchableOpacity style={styles.galleryPlaceholder} onPress={() => setIsGalleryOpen(true)}>
-            {latestPhoto ? (
-              <Image source={{ uri: latestPhoto }} style={styles.thumbnailImage} />
-            ) : (
-              <View style={styles.emptyGalleryTextContainer}>
-                <Text style={styles.emptyGalleryText}>0</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.galleryPlaceholder} onPress={() => setIsGalleryOpen(true)}>
+          {latestPhoto ? (
+            <Image source={{ uri: latestPhoto }} style={styles.thumbnailImage} />
+          ) : (
+            <View style={styles.emptyGalleryTextContainer}>
+              <Text style={styles.emptyGalleryText}>0</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
 
-      </CameraView>
-
-      {/* Built-in TempCam Gallery Overlay */}
       <Modal visible={isGalleryOpen} animationType="slide" transparent={false}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -304,7 +289,6 @@ export default function CameraScreen() {
         </View>
       </Modal>
 
-      {/* Full-Screen Preview Modal */}
       <Modal visible={!!selectedImageUri} transparent={true} animationType="fade">
         <View style={styles.fullscreenContainer}>
           <TouchableOpacity style={styles.fullscreenCloseButton} onPress={() => setSelectedImageUri(null)}>
@@ -315,7 +299,6 @@ export default function CameraScreen() {
           )}
         </View>
       </Modal>
-
     </View>
   );
 }
