@@ -93,12 +93,16 @@ export default function CameraScreen() {
     if (!cameraRef.current) return;
 
     try {
-      const photo = await cameraRef.current.takePictureAsync();
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        skipProcessing: false,
+      });
+
       if (photo?.uri) {
         const fileName = `temp_${Date.now()}.jpg`;
         const newPath = `${FileSystem.documentDirectory}${fileName}`;
 
-        await FileSystem.moveAsync({
+        await FileSystem.copyAsync({
           from: photo.uri,
           to: newPath,
         });
@@ -112,7 +116,7 @@ export default function CameraScreen() {
         setPhotos((prev) => [newPhoto, ...prev]);
       }
     } catch (error) {
-      console.error(error);
+      console.error('Capture error detail:', error);
       alert('Failed to capture photo.');
     }
   };
