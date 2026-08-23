@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
@@ -9,19 +10,16 @@ SplashScreen.preventAutoHideAsync();
 
 export default function CameraScreen() {
   const [facing, setFacing] = useState<'back' | 'front'>('back');
-  const [zoom, setZoom] = useState<number>(0); // Expo Camera zoom goes from 0 to 1
+  const [zoom, setZoom] = useState<number>(0);
   const [selectedDuration, setSelectedDuration] = useState('10s');
   const [permission, requestPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const [lastPhoto, setLastPhoto] = useState<string | null>(null);
 
   const cameraRef = useRef<any>(null);
-
-  // Pinch-to-zoom gesture tracking variables
   const [previousDistance, setPreviousDistance] = useState<number | null>(null);
 
   useEffect(() => {
-    // Keep splash screen visible for 2.5 seconds
     const prepare = async () => {
       await new Promise(resolve => setTimeout(resolve, 2500));
       await SplashScreen.hideAsync();
@@ -29,11 +27,9 @@ export default function CameraScreen() {
     prepare();
   }, []);
 
-  // Handle Photo Capture & Save
   const handleTakePicture = async () => {
     if (!cameraRef.current) return;
 
-    // Check or request Media Library permissions
     if (!mediaPermission?.granted) {
       const response = await requestMediaPermission();
       if (!response.granted) {
@@ -46,7 +42,7 @@ export default function CameraScreen() {
       const photo = await cameraRef.current.takePictureAsync();
       if (photo?.uri) {
         await MediaLibrary.saveToLibraryAsync(photo.uri);
-        setLastPhoto(photo.uri); // Updates gallery button with latest thumbnail
+        setLastPhoto(photo.uri);
       }
     } catch (error) {
       console.error(error);
@@ -54,21 +50,31 @@ export default function CameraScreen() {
     }
   };
 
-  // Pinch Gesture Responder for Expo Camera
+  const handleOpenGallery = async () => {
+    // Opens the native iOS image library cleanly inside your app
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      setLastPhoto(result.assets[0].uri);
+    }
+  };
+
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
     onPanResponderMove: (evt) => {
       const touches = evt.nativeEvent.touches;
       if (touches.length === 2) {
-        // Calculate distance between two fingers
         const dx = touches[0].pageX - touches[1].pageX;
         const dy = touches[0].pageY - touches[1].pageY;
         const currentDistance = Math.sqrt(dx * dx + dy * dy);
 
         if (previousDistance !== null) {
           const delta = currentDistance - previousDistance;
-          // Scale distance change to zoom range (0 to 1)
           setZoom((prevZoom) => {
             const nextZoom = prevZoom + delta * 0.002;
             return Math.min(Math.max(nextZoom, 0), 1);
@@ -97,7 +103,6 @@ export default function CameraScreen() {
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
       <CameraView style={StyleSheet.absoluteFill} facing={facing} zoom={zoom} ref={cameraRef}>
-        {/* Time bar positioned down closer to bottom controls */}
         <View style={styles.timeBarContainer}>
           <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
           <View style={styles.timeBarOptions}>
@@ -118,7 +123,6 @@ export default function CameraScreen() {
           </View>
         </View>
 
-        {/* Bottom Shutter Controls */}
         <View style={styles.controlsContainer}>
           <TouchableOpacity 
             style={styles.flipButton} 
@@ -131,12 +135,12 @@ export default function CameraScreen() {
             <View style={styles.innerCaptureButton} />
           </TouchableOpacity>
 
-          {/* Gallery Button displaying recent photo thumbnail */}
-          <View style={styles.galleryPlaceholder}>
+          {/* Tappable Gallery Button */}
+          <TouchableOpacity style={styles.galleryPlaceholder} onPress={handleOpenGallery}>
             {lastPhoto && (
               <Image source={{ uri: lastPhoto }} style={styles.thumbnailImage} />
             )}
-          </View>
+          </TouchableOpacity>
         </View>
       </CameraView>
     </View>
