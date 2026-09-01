@@ -1,6 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +18,8 @@ import {
 } from 'react-native';
 
 SplashScreen.preventAutoHideAsync();
+
+const STORAGE_KEY = '@tempcam_photos_v1';
 
 interface SavedPhoto {
   id: string;
@@ -33,19 +37,44 @@ export default function CameraScreen() {
   const [photos, setPhotos] = useState<SavedPhoto[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [, setTick] = useState<number>(0);
 
   const cameraRef = useRef<any>(null);
   const [previousDistance, setPreviousDistance] = useState<number | null>(null);
 
+  // Splash Screen & Load Saved Photos
   useEffect(() => {
     const prepare = async () => {
-      await new Promise(resolve => setTimeout(resolve, 2500));
-      await SplashScreen.hideAsync();
+      try {
+        const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
+        if (jsonValue != null) {
+          setPhotos(JSON.parse(jsonValue));
+        }
+      } catch (e) {
+        console.error('Failed to load photos from storage:', e);
+      } finally {
+        setIsLoaded(true);
+        await SplashScreen.hideAsync();
+      }
     };
     prepare();
   }, []);
 
+  // Sync Photos to AsyncStorage on change (only after initial load)
+  useEffect(() => {
+    if (!isLoaded) return;
+    const savePhotos = async () => {
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(photos));
+      } catch (e) {
+        console.error('Failed to save photos to storage:', e);
+      }
+    };
+    savePhotos();
+  }, [photos, isLoaded]);
+
+  // Expiration Ticker & Cleanup
   useEffect(() => {
     const interval = setInterval(() => {
       const currentTime = Date.now();
@@ -130,7 +159,7 @@ export default function CameraScreen() {
   const handleLongPressPhoto = (photo: SavedPhoto) => {
     Alert.alert(
       'Photo Options',
-      'What would you like to do with this temporary photo?',
+      'Choose an action for this temporary photo:',
       [
         {
           text: 'Save to Camera Roll',
@@ -152,6 +181,29 @@ export default function CameraScreen() {
           },
         },
         {
+          text: 'Share Photo',
+          onPress: async () => {
+            const isAvailable = await Sharing.isAvailableAsync();
+            if (isAvailable) {
+              await Sharing.shareAsync(photo.uri);
+            } else {
+              alert('Sharing is not available on this device.');
+            }
+          },
+        },
+        {
+          text: 'Extend Timer (+1 Hour)',
+          onPress: () => {
+            setPhotos((prev) =>
+              prev.map((p) =>
+                p.id === photo.id
+                  ? { ...p, expiresAt: p.expiresAt + 60 * 60 * 1000 }
+                  : p
+              )
+            );
+          },
+        },
+        {
           text: 'Delete Immediately',
           style: 'destructive',
           onPress: async () => {
@@ -168,7 +220,7 @@ export default function CameraScreen() {
   };
 
   const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
     onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
     onPanResponderMove: (evt) => {
       const touches = evt.nativeEvent.touches;
@@ -238,7 +290,11 @@ export default function CameraScreen() {
           <Text style={styles.controlText}>Flip</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.captureButton} onPress={handleTakePicture}>
+        <TouchableOpacity 
+          style={styles.captureButton} 
+          onPress={handleTakePicture}
+          activeOpacity={0.6}
+        >
           <View style={styles.innerCaptureButton} />
         </TouchableOpacity>
 
@@ -280,7 +336,7 @@ export default function CameraScreen() {
                 >
                   <Image source={{ uri: item.uri }} style={styles.gridImage} />
                   <View style={styles.timerBadge}>
-                    <Text style={styles.timerBadgeText}>Expires: {formatRemainingTime(item.expiresAt)}</Text>
+                    <Text style={styles.timerBadgeText}>🔥 {formatRemainingTime(item.expiresAt)}</Text>
                   </View>
                 </TouchableOpacity>
               )}
@@ -318,6 +374,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 12,
     alignItems: 'center',
+    zIndex: 10,
   },
   timeBarLabel: { color: '#aaa', fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1 },
   timeBarOptions: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
@@ -332,6 +389,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    zIndex: 10,
   },
   captureButton: {
     width: 75,
@@ -366,7 +424,7 @@ const styles = StyleSheet.create({
   emptyText: { color: '#888', fontSize: 16 },
   gridItem: { flex: 0.5, height: 200, margin: 5, borderRadius: 10, overflow: 'hidden' },
   gridImage: { width: '100%', height: '100%' },
-  timerBadge: { position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5 },
+  timerBadge: { position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5 },
   timerBadgeText: { color: '#FF4500', fontWeight: 'bold', fontSize: 12 },
   fullscreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
   fullscreenCloseButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
