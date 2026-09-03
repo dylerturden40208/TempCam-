@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -9,6 +10,7 @@ import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -30,7 +32,6 @@ interface SavedPhoto {
   expiresAt: number;
 }
 
-// Global background task definition
 TaskManager.defineTask(BACKGROUND_CLEANUP_TASK, async () => {
   try {
     const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
@@ -57,8 +58,50 @@ TaskManager.defineTask(BACKGROUND_CLEANUP_TASK, async () => {
   }
 });
 
+const AnimatedGalleryItem = ({ item, onPress, onLongPress, formatRemainingTime, onExpired }: any) => {
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const isExpiringRef = useRef(false);
+
+  useEffect(() => {
+    const checkExpiration = () => {
+      const remaining = item.expiresAt - Date.now();
+
+      if (remaining <= 300 && !isExpiringRef.current) {
+        isExpiringRef.current = true;
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          onExpired(item.id, item.uri);
+        });
+      }
+    };
+
+    const timer = setInterval(checkExpiration, 100);
+    return () => clearInterval(timer);
+  }, [item.expiresAt]);
+
+  return (
+    <Animated.View style={[styles.gridItem, { opacity: fadeAnim }]}>
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        activeOpacity={0.8}
+      >
+        <Image source={{ uri: item.uri }} style={styles.gridImage} />
+        <View style={styles.timerBadge}>
+          <Text style={styles.timerBadgeText}>🔥 {formatRemainingTime(item.expiresAt)}</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 export default function CameraScreen() {
   const [facing, setFacing] = useState<'back' | 'front'>('back');
+  const [flash, setFlash] = useState<FlashMode>('off');
   const [selectedDuration, setSelectedDuration] = useState<string>('10s');
   const [permission, requestPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
@@ -71,7 +114,6 @@ export default function CameraScreen() {
 
   const cameraRef = useRef<any>(null);
 
-  // Splash Screen, Load Saved Photos & Register Background Task
   useEffect(() => {
     const prepare = async () => {
       try {
@@ -80,7 +122,7 @@ export default function CameraScreen() {
           setPhotos(JSON.parse(jsonValue));
         }
       } catch (e) {
-        console.error('Failed to load photos from storage:', e);
+        console.error('Failed to load photos:', e);
       } finally {
         setIsLoaded(true);
         await SplashScreen.hideAsync();
@@ -89,47 +131,32 @@ export default function CameraScreen() {
           minimumInterval: 15 * 60,
           stopOnTerminate: false,
           startOnBoot: true,
-        }).catch((err) => console.log('Background task registration failed:', err));
+        }).catch((err) => console.log('Background task error:', err));
       }
     };
     prepare();
   }, []);
 
-  // Sync Photos to AsyncStorage on change
   useEffect(() => {
     if (!isLoaded) return;
-    const savePhotos = async () => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(photos));
-      } catch (e) {
-        console.error('Failed to save photos to storage:', e);
-      }
-    };
-    savePhotos();
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(photos)).catch((e) =>
+      console.error('Failed to save photos:', e)
+    );
   }, [photos, isLoaded]);
 
-  // Foreground Expiration Ticker & Deletion
   useEffect(() => {
     const interval = setInterval(() => {
-      const currentTime = Date.now();
       setTick((t) => t + 1);
-
-      setPhotos((currentPhotos) => {
-        const unexpired = currentPhotos.filter((p) => p.expiresAt > currentTime);
-        const expired = currentPhotos.filter((p) => p.expiresAt <= currentTime);
-
-        expired.forEach((photo) => {
-          FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch((err) =>
-            console.error('Error deleting file:', err)
-          );
-        });
-
-        return unexpired;
-      });
     }, 500);
-
     return () => clearInterval(interval);
   }, []);
+
+  const handlePhotoExpired = async (id: string, uri: string) => {
+    await FileSystem.deleteAsync(uri, { idempotent: true }).catch((err) =>
+      console.error('Error deleting file:', err)
+    );
+    setPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
 
   const getDurationMs = (duration: string): number => {
     switch (duration) {
@@ -201,15 +228,14 @@ export default function CameraScreen() {
             if (!mediaPermission?.granted) {
               const permissionResult = await requestMediaPermission();
               if (!permissionResult.granted) {
-                alert('Permission is required to save photos to your library.');
+                alert('Permission required.');
                 return;
               }
             }
             try {
               await MediaLibrary.saveToLibraryAsync(photo.uri);
-              alert('Photo saved permanently to Camera Roll!');
+              alert('Saved to Camera Roll!');
             } catch (err) {
-              console.error('Save error:', err);
               alert('Failed to save photo.');
             }
           },
@@ -217,11 +243,8 @@ export default function CameraScreen() {
         {
           text: 'Share Photo',
           onPress: async () => {
-            const isAvailable = await Sharing.isAvailableAsync();
-            if (isAvailable) {
+            if (await Sharing.isAvailableAsync()) {
               await Sharing.shareAsync(photo.uri);
-            } else {
-              alert('Sharing is not available on this device.');
             }
           },
         },
@@ -240,15 +263,9 @@ export default function CameraScreen() {
         {
           text: 'Delete Immediately',
           style: 'destructive',
-          onPress: async () => {
-            await FileSystem.deleteAsync(photo.uri, { idempotent: true });
-            setPhotos((prev) => prev.filter((p) => p.id !== photo.id));
-          },
+          onPress: () => handlePhotoExpired(photo.id, photo.uri),
         },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
@@ -270,8 +287,17 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView style={StyleSheet.absoluteFill} facing={facing} ref={cameraRef} />
+      <CameraView style={StyleSheet.absoluteFill} facing={facing} flash={flash} ref={cameraRef} />
 
+      {/* Top Flash Control */}
+      <TouchableOpacity
+        style={styles.flashButton}
+        onPress={() => setFlash((f) => (f === 'off' ? 'on' : 'off'))}
+      >
+        <Ionicons name={flash === 'on' ? 'flash' : 'flash-off'} size={22} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Timer Selection Bar */}
       <View style={styles.timeBarContainer}>
         <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
         <View style={styles.timeBarOptions}>
@@ -292,13 +318,16 @@ export default function CameraScreen() {
         </View>
       </View>
 
+      {/* Perfectly Centered Controls Bar */}
       <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={styles.flipButton}
-          onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
-        >
-          <Text style={styles.controlText}>Flip</Text>
-        </TouchableOpacity>
+        <View style={styles.sideControlWrapper}>
+          <TouchableOpacity
+            style={styles.iconControlButton}
+            onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
+          >
+            <Ionicons name="camera-reverse" size={26} color="#fff" />
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={styles.captureButton}
@@ -308,15 +337,17 @@ export default function CameraScreen() {
           <View style={styles.innerCaptureButton} />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.galleryPlaceholder} onPress={() => setIsGalleryOpen(true)}>
-          {latestPhoto ? (
-            <Image source={{ uri: latestPhoto }} style={styles.thumbnailImage} />
-          ) : (
-            <View style={styles.emptyGalleryTextContainer}>
-              <Text style={styles.emptyGalleryText}>0</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.sideControlWrapper}>
+          <TouchableOpacity style={styles.galleryPlaceholder} onPress={() => setIsGalleryOpen(true)}>
+            {latestPhoto ? (
+              <Image source={{ uri: latestPhoto }} style={styles.thumbnailImage} />
+            ) : (
+              <View style={styles.emptyGalleryTextContainer}>
+                <Text style={styles.emptyGalleryText}>0</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Gallery Modal */}
@@ -339,22 +370,18 @@ export default function CameraScreen() {
               keyExtractor={(item) => item.id}
               numColumns={2}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.gridItem}
+                <AnimatedGalleryItem
+                  item={item}
                   onPress={() => setSelectedImageUri(item.uri)}
                   onLongPress={() => handleLongPressPhoto(item)}
-                  activeOpacity={0.8}
-                >
-                  <Image source={{ uri: item.uri }} style={styles.gridImage} />
-                  <View style={styles.timerBadge}>
-                    <Text style={styles.timerBadgeText}>🔥 {formatRemainingTime(item.expiresAt)}</Text>
-                  </View>
-                </TouchableOpacity>
+                  formatRemainingTime={formatRemainingTime}
+                  onExpired={handlePhotoExpired}
+                />
               )}
             />
           )}
 
-          {/* Fullscreen Modal with Pinch-to-Zoom & Pan Support */}
+          {/* Zoom Modal */}
           <Modal visible={!!selectedImageUri} transparent={true} animationType="fade">
             <View style={styles.fullscreenContainer}>
               <TouchableOpacity style={styles.fullscreenCloseButton} onPress={() => setSelectedImageUri(null)}>
@@ -389,6 +416,18 @@ const styles = StyleSheet.create({
   permissionText: { color: '#fff', textAlign: 'center', marginBottom: 20, fontSize: 16 },
   permissionButton: { backgroundColor: '#FF4500', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
   permissionButtonText: { color: '#fff', fontWeight: 'bold' },
+  flashButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
   timeBarContainer: {
     position: 'absolute',
     bottom: 120,
@@ -411,9 +450,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
     zIndex: 10,
+  },
+  sideControlWrapper: {
+    width: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   captureButton: {
     width: 75,
@@ -425,8 +470,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   innerCaptureButton: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#FF4500' },
-  flipButton: { backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
-  controlText: { color: '#fff', fontWeight: '600' },
+  iconControlButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   galleryPlaceholder: {
     width: 45,
     height: 45,
