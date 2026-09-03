@@ -1,25 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as BackgroundFetch from 'expo-background-fetch';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as SplashScreen from 'expo-splash-screen';
+import * as TaskManager from 'expo-task-manager';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
   Image,
   Modal,
-  PanResponder,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
 SplashScreen.preventAutoHideAsync();
 
 const STORAGE_KEY = '@tempcam_photos_v1';
+const BACKGROUND_CLEANUP_TASK = 'TEMP_CAM_BACKGROUND_CLEANUP';
 
 interface SavedPhoto {
   id: string;
@@ -27,13 +30,39 @@ interface SavedPhoto {
   expiresAt: number;
 }
 
+// Global background task definition
+TaskManager.defineTask(BACKGROUND_CLEANUP_TASK, async () => {
+  try {
+    const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!jsonValue) return BackgroundFetch.BackgroundFetchResult.NoData;
+
+    const photos: SavedPhoto[] = JSON.parse(jsonValue);
+    const currentTime = Date.now();
+
+    const unexpired = photos.filter((p) => p.expiresAt > currentTime);
+    const expired = photos.filter((p) => p.expiresAt <= currentTime);
+
+    if (expired.length > 0) {
+      for (const photo of expired) {
+        await FileSystem.deleteAsync(photo.uri, { idempotent: true });
+      }
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(unexpired));
+      return BackgroundFetch.BackgroundFetchResult.NewData;
+    }
+
+    return BackgroundFetch.BackgroundFetchResult.NoData;
+  } catch (error) {
+    console.error('Background task failed:', error);
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
+
 export default function CameraScreen() {
   const [facing, setFacing] = useState<'back' | 'front'>('back');
-  const [zoom, setZoom] = useState<number>(0);
   const [selectedDuration, setSelectedDuration] = useState<string>('10s');
   const [permission, requestPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
-  
+
   const [photos, setPhotos] = useState<SavedPhoto[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
@@ -41,9 +70,8 @@ export default function CameraScreen() {
   const [, setTick] = useState<number>(0);
 
   const cameraRef = useRef<any>(null);
-  const [previousDistance, setPreviousDistance] = useState<number | null>(null);
 
-  // Splash Screen & Load Saved Photos
+  // Splash Screen, Load Saved Photos & Register Background Task
   useEffect(() => {
     const prepare = async () => {
       try {
@@ -56,12 +84,18 @@ export default function CameraScreen() {
       } finally {
         setIsLoaded(true);
         await SplashScreen.hideAsync();
+
+        BackgroundFetch.registerTaskAsync(BACKGROUND_CLEANUP_TASK, {
+          minimumInterval: 15 * 60,
+          stopOnTerminate: false,
+          startOnBoot: true,
+        }).catch((err) => console.log('Background task registration failed:', err));
       }
     };
     prepare();
   }, []);
 
-  // Sync Photos to AsyncStorage on change (only after initial load)
+  // Sync Photos to AsyncStorage on change
   useEffect(() => {
     if (!isLoaded) return;
     const savePhotos = async () => {
@@ -74,7 +108,7 @@ export default function CameraScreen() {
     savePhotos();
   }, [photos, isLoaded]);
 
-  // Expiration Ticker & Cleanup
+  // Foreground Expiration Ticker & Deletion
   useEffect(() => {
     const interval = setInterval(() => {
       const currentTime = Date.now();
@@ -219,32 +253,8 @@ export default function CameraScreen() {
     );
   };
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
-    onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
-    onPanResponderMove: (evt) => {
-      const touches = evt.nativeEvent.touches;
-      if (touches.length === 2) {
-        const dx = touches[0].pageX - touches[1].pageX;
-        const dy = touches[0].pageY - touches[1].pageY;
-        const currentDistance = Math.sqrt(dx * dx + dy * dy);
-
-        if (previousDistance !== null) {
-          const delta = currentDistance - previousDistance;
-          setZoom((prevZoom) => {
-            const nextZoom = prevZoom + delta * 0.002;
-            return Math.min(Math.max(nextZoom, 0), 1);
-          });
-        }
-        setPreviousDistance(currentDistance);
-      }
-    },
-    onPanResponderRelease: () => setPreviousDistance(null),
-    onPanResponderTerminate: () => setPreviousDistance(null),
-  });
-
   if (!permission) return <View style={styles.container} />;
-  
+
   if (!permission.granted) {
     return (
       <View style={styles.permissionContainer}>
@@ -259,8 +269,8 @@ export default function CameraScreen() {
   const latestPhoto = photos[0]?.uri;
 
   return (
-    <View style={styles.container} {...panResponder.panHandlers}>
-      <CameraView style={StyleSheet.absoluteFill} facing={facing} zoom={zoom} ref={cameraRef} />
+    <View style={styles.container}>
+      <CameraView style={StyleSheet.absoluteFill} facing={facing} ref={cameraRef} />
 
       <View style={styles.timeBarContainer}>
         <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
@@ -270,7 +280,7 @@ export default function CameraScreen() {
               key={item}
               style={[
                 styles.timeButton,
-                selectedDuration === item && styles.activeTimeButton
+                selectedDuration === item && styles.activeTimeButton,
               ]}
               onPress={() => setSelectedDuration(item)}
             >
@@ -283,15 +293,15 @@ export default function CameraScreen() {
       </View>
 
       <View style={styles.controlsContainer}>
-        <TouchableOpacity 
-          style={styles.flipButton} 
-          onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}
+        <TouchableOpacity
+          style={styles.flipButton}
+          onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
         >
           <Text style={styles.controlText}>Flip</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.captureButton} 
+        <TouchableOpacity
+          style={styles.captureButton}
           onPress={handleTakePicture}
           activeOpacity={0.6}
         >
@@ -309,6 +319,7 @@ export default function CameraScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Gallery Modal */}
       <Modal visible={isGalleryOpen} animationType="slide" transparent={false}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -342,17 +353,30 @@ export default function CameraScreen() {
               )}
             />
           )}
-        </View>
-      </Modal>
 
-      <Modal visible={!!selectedImageUri} transparent={true} animationType="fade">
-        <View style={styles.fullscreenContainer}>
-          <TouchableOpacity style={styles.fullscreenCloseButton} onPress={() => setSelectedImageUri(null)}>
-            <Text style={styles.fullscreenCloseText}>✕ Close</Text>
-          </TouchableOpacity>
-          {selectedImageUri && (
-            <Image source={{ uri: selectedImageUri }} style={styles.fullscreenImage} resizeMode="contain" />
-          )}
+          {/* Fullscreen Modal with Pinch-to-Zoom & Pan Support */}
+          <Modal visible={!!selectedImageUri} transparent={true} animationType="fade">
+            <View style={styles.fullscreenContainer}>
+              <TouchableOpacity style={styles.fullscreenCloseButton} onPress={() => setSelectedImageUri(null)}>
+                <Text style={styles.fullscreenCloseText}>✕ Close</Text>
+              </TouchableOpacity>
+              
+              {selectedImageUri && (
+                <ScrollView
+                  style={{ width: '100%', height: '100%' }}
+                  contentContainerStyle={styles.scrollContainer}
+                  maximumZoomScale={4}
+                  minimumZoomScale={1}
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={false}
+                  centerContent={true}
+                >
+                  <Image source={{ uri: selectedImageUri }} style={styles.fullscreenImage} resizeMode="contain" />
+                </ScrollView>
+              )}
+            </View>
+          </Modal>
+
         </View>
       </Modal>
     </View>
@@ -427,6 +451,7 @@ const styles = StyleSheet.create({
   timerBadge: { position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5 },
   timerBadgeText: { color: '#FF4500', fontWeight: 'bold', fontSize: 12 },
   fullscreenContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   fullscreenCloseButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
   fullscreenCloseText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
   fullscreenImage: { width: '100%', height: '80%' },

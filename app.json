@@ -1,55 +1,52 @@
 {
   "expo": {
-    "name": "TempCam",
-    "slug": "TempCam",
+    "name": "TempCam!",
+    "slug": "tempcam",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ericschmidt.tempcam",
       "infoPlist": {
-        "NSCameraUsageDescription": "TempCam needs access to your camera to take temporary photos.",
-        "NSPhotoLibraryUsageDescription": "TempCam needs access to your photo library to save permanent photos.",
-        "NSPhotoLibraryAddUsageDescription": "TempCam needs access to add photos to your gallery."
+        "NSCameraUsageDescription": "TempCam needs access to your camera to take temporary self-destructing photos.",
+        "NSMicrophoneUsageDescription": "TempCam requires microphone access while using the camera.",
+        "NSPhotoLibraryUsageDescription": "TempCam needs access to your photo library to save temporary photos.",
+        "NSPhotoLibraryAddUsageDescription": "TempCam needs permission to save temporary photos directly to your camera roll.",
+        "UIBackgroundModes": [
+          "fetch",
+          "fetch"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "android": {
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
     "plugins": [
-      "expo-router",
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow TempCam to access your camera."
+          "cameraPermission": "TempCam needs access to your camera to take temporary self-destructing photos.",
+          "microphonePermission": "TempCam requires microphone access while using the camera."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow TempCam to access your photos.",
-          "savePhotosPermission": "Allow TempCam to save photos."
+          "photosPermission": "TempCam needs access to your photo library to save temporary photos.",
+          "savePhotosPermission": "TempCam needs permission to save temporary photos directly to your camera roll.",
+          "isAccessMediaLocationEnabled": true
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true
+    "extra": {
+      "eas": {
+        "projectId": "59abd595-ef2a-43f2-8180-d296bd58dfeb"
+      }
     }
   }
 }
