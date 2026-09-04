@@ -26,11 +26,13 @@ SplashScreen.preventAutoHideAsync();
 
 const STORAGE_KEY = '@tempcam_photos_v1';
 const BACKGROUND_CLEANUP_TASK = 'TEMP_CAM_BACKGROUND_CLEANUP';
+const MAX_STORAGE_BYTES = 500 * 1024 * 1024; // 500 MB Storage Limit
 
 interface SavedPhoto {
   id: string;
   uri: string;
   expiresAt: number;
+  size?: number;
 }
 
 TaskManager.defineTask(BACKGROUND_CLEANUP_TASK, async () => {
@@ -116,12 +118,40 @@ export default function CameraScreen() {
 
   const cameraRef = useRef<any>(null);
 
+  const enforceStorageCap = async (currentPhotos: SavedPhoto[]): Promise<SavedPhoto[]> => {
+    let totalSize = 0;
+    const photoList = [...currentPhotos];
+
+    for (const p of photoList) {
+      if (!p.size) {
+        const info = await FileSystem.getInfoAsync(p.uri);
+        if (info.exists && 'size' in info) {
+          p.size = info.size;
+        }
+      }
+      totalSize += p.size || 0;
+    }
+
+    // Delete oldest photos if total size exceeds 500MB
+    while (totalSize > MAX_STORAGE_BYTES && photoList.length > 0) {
+      const oldestPhoto = photoList.pop();
+      if (oldestPhoto) {
+        await FileSystem.deleteAsync(oldestPhoto.uri, { idempotent: true });
+        totalSize -= oldestPhoto.size || 0;
+      }
+    }
+
+    return photoList;
+  };
+
   useEffect(() => {
     const prepare = async () => {
       try {
         const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
         if (jsonValue != null) {
-          setPhotos(JSON.parse(jsonValue));
+          const loadedPhotos = JSON.parse(jsonValue);
+          const cappedPhotos = await enforceStorageCap(loadedPhotos);
+          setPhotos(cappedPhotos);
         }
       } catch (e) {
         console.error('Failed to load photos:', e);
@@ -207,13 +237,19 @@ export default function CameraScreen() {
           to: newPath,
         });
 
+        const fileInfo = await FileSystem.getInfoAsync(newPath);
+        const fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
+
         const newPhoto: SavedPhoto = {
           id: Date.now().toString(),
           uri: newPath,
           expiresAt: Date.now() + getDurationMs(selectedDuration),
+          size: fileSize,
         };
 
-        setPhotos((prev) => [newPhoto, ...prev]);
+        const updatedList = [newPhoto, ...photos];
+        const cappedList = await enforceStorageCap(updatedList);
+        setPhotos(cappedList);
       }
     } catch (error: any) {
       console.error('Capture error:', error);
