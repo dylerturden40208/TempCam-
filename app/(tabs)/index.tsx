@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as BackgroundFetch from 'expo-background-fetch';
 import { CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as SplashScreen from 'expo-splash-screen';
@@ -102,8 +103,8 @@ const AnimatedGalleryItem = ({ item, onPress, onLongPress, formatRemainingTime, 
 export default function CameraScreen() {
   const [facing, setFacing] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
-  // Default timer duration set to 7 Days
   const [selectedDuration, setSelectedDuration] = useState<string>('7 Days');
+  const [zoom, setZoom] = useState<number>(0);
   const [permission, requestPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
 
@@ -189,6 +190,8 @@ export default function CameraScreen() {
   const handleTakePicture = async () => {
     if (!cameraRef.current) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
     try {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
@@ -218,7 +221,23 @@ export default function CameraScreen() {
     }
   };
 
+  const handleSelectDuration = (duration: string) => {
+    Haptics.selectionAsync();
+    setSelectedDuration(duration);
+  };
+
+  const handleToggleFlash = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFlash((f) => (f === 'off' ? 'on' : 'off'));
+  };
+
+  const handleFlipCamera = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFacing((f) => (f === 'back' ? 'front' : 'back'));
+  };
+
   const handleLongPressPhoto = (photo: SavedPhoto) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       'Photo Options',
       'Choose an action for this temporary photo:',
@@ -235,6 +254,7 @@ export default function CameraScreen() {
             }
             try {
               await MediaLibrary.saveToLibraryAsync(photo.uri);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               alert('Saved to Camera Roll!');
             } catch (err) {
               alert('Failed to save photo.');
@@ -252,6 +272,7 @@ export default function CameraScreen() {
         {
           text: 'Extend Timer (+1 Hour)',
           onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPhotos((prev) =>
               prev.map((p) =>
                 p.id === photo.id
@@ -264,7 +285,10 @@ export default function CameraScreen() {
         {
           text: 'Delete Immediately',
           style: 'destructive',
-          onPress: () => handlePhotoExpired(photo.id, photo.uri),
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            handlePhotoExpired(photo.id, photo.uri);
+          },
         },
         { text: 'Cancel', style: 'cancel' },
       ]
@@ -288,17 +312,44 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView style={StyleSheet.absoluteFill} facing={facing} flash={flash} ref={cameraRef} />
+      <CameraView 
+        style={StyleSheet.absoluteFill} 
+        facing={facing} 
+        flash={flash} 
+        zoom={zoom}
+        ref={cameraRef} 
+      />
 
       {/* Top Flash Control */}
       <TouchableOpacity
         style={styles.flashButton}
-        onPress={() => setFlash((f) => (f === 'off' ? 'on' : 'off'))}
+        onPress={handleToggleFlash}
       >
         <Ionicons name={flash === 'on' ? 'flash' : 'flash-off'} size={22} color="#fff" />
       </TouchableOpacity>
 
-      {/* Timer Selection Bar (Reversed Order: 7 Days to 10s) */}
+      {/* On-Screen Zoom Controls */}
+      <View style={styles.zoomContainer}>
+        {[0, 0.5, 1].map((level, idx) => {
+          const labels = ['1x', '2x', '3x'];
+          return (
+            <TouchableOpacity
+              key={labels[idx]}
+              style={[styles.zoomButton, zoom === level && styles.activeZoomButton]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setZoom(level);
+              }}
+            >
+              <Text style={[styles.zoomText, zoom === level && styles.activeZoomText]}>
+                {labels[idx]}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Timer Selection Bar */}
       <View style={styles.timeBarContainer}>
         <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
         <View style={styles.timeBarOptions}>
@@ -309,7 +360,7 @@ export default function CameraScreen() {
                 styles.timeButton,
                 selectedDuration === item && styles.activeTimeButton,
               ]}
-              onPress={() => setSelectedDuration(item)}
+              onPress={() => handleSelectDuration(item)}
             >
               <Text style={styles.timeButtonText}>
                 {item === '10s' ? `⚡ ${item}` : item}
@@ -324,7 +375,7 @@ export default function CameraScreen() {
         <View style={styles.sideControlWrapper}>
           <TouchableOpacity
             style={styles.iconControlButton}
-            onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
+            onPress={handleFlipCamera}
           >
             <Ionicons name="camera-reverse" size={26} color="#fff" />
           </TouchableOpacity>
@@ -339,7 +390,13 @@ export default function CameraScreen() {
         </TouchableOpacity>
 
         <View style={styles.sideControlWrapper}>
-          <TouchableOpacity style={styles.galleryPlaceholder} onPress={() => setIsGalleryOpen(true)}>
+          <TouchableOpacity 
+            style={styles.galleryPlaceholder} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsGalleryOpen(true);
+            }}
+          >
             {latestPhoto ? (
               <Image source={{ uri: latestPhoto }} style={styles.thumbnailImage} />
             ) : (
@@ -428,6 +485,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
+  },
+  zoomContainer: {
+    position: 'absolute',
+    bottom: 200,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 10,
+  },
+  zoomButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  activeZoomButton: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  zoomText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  activeZoomText: {
+    color: '#FF4500',
   },
   timeBarContainer: {
     position: 'absolute',
