@@ -102,7 +102,8 @@ const AnimatedGalleryItem = ({ item, onPress, onLongPress, formatRemainingTime, 
 export default function CameraScreen() {
   const [facing, setFacing] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
-  const [selectedDuration, setSelectedDuration] = useState<string>('10s');
+  // Default timer duration set to 7 Days
+  const [selectedDuration, setSelectedDuration] = useState<string>('7 Days');
   const [permission, requestPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
 
@@ -164,7 +165,7 @@ export default function CameraScreen() {
       case '1 Hr': return 60 * 60 * 1000;
       case '24 Hrs': return 24 * 60 * 60 * 1000;
       case '7 Days': return 7 * 24 * 60 * 60 * 1000;
-      default: return 10 * 1000;
+      default: return 7 * 24 * 60 * 60 * 1000;
     }
   };
 
@@ -297,11 +298,11 @@ export default function CameraScreen() {
         <Ionicons name={flash === 'on' ? 'flash' : 'flash-off'} size={22} color="#fff" />
       </TouchableOpacity>
 
-      {/* Timer Selection Bar */}
+      {/* Timer Selection Bar (Reversed Order: 7 Days to 10s) */}
       <View style={styles.timeBarContainer}>
         <Text style={styles.timeBarLabel}>AUTO-DELETE IN:</Text>
         <View style={styles.timeBarOptions}>
-          {['10s', '1 Hr', '24 Hrs', '7 Days'].map((item) => (
+          {['7 Days', '24 Hrs', '1 Hr', '10s'].map((item) => (
             <TouchableOpacity
               key={item}
               style={[
@@ -318,7 +319,7 @@ export default function CameraScreen() {
         </View>
       </View>
 
-      {/* Perfectly Centered Controls Bar */}
+      {/* Centered Controls Bar */}
       <View style={styles.controlsContainer}>
         <View style={styles.sideControlWrapper}>
           <TouchableOpacity
